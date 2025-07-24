@@ -23,7 +23,7 @@ def readme():
 
 
 def version():
-  return '0.2.2'
+  return '1.0.0'
 
 
 setuptools.setup(

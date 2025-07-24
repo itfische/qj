@@ -10,6 +10,29 @@ If you have ever found yourself rewriting a list comprehension as a for loop, or
 splitting a line of code into three lines just to store and log an intermediate
 value, then this log function is for you.
 
+### Install with pip:
+```
+$ pip install qj
+```
+
+### Add the following import:
+```
+from qj import qj
+```
+
+### Call it to debug things in-line:
+```
+def my_func():
+  bar = 42
+  ...
+  foo = qj(bar)
+```
+You should see something nice like:
+```
+[timestamp] qj: <some_file> my_func: bar <[line number]>: 42
+```
+and `foo == bar` just like your code intended.
+
 
 ## Overview:
 
@@ -105,14 +128,13 @@ particular feature:
  - `l` is for the lambda that lets you log more things.
  - `p` is for printing public properties of `x`.
  - `n` is for numpy array statistics.
- - `t` is for printing tensorflow Tensors.
  - `r` is for overriding the return value.
  - `z` is for zeroing out the log count and automatic indentation of a particular log.
 
 A few less-commonly needed features get longer names:
  - `pad` is for padding a log message so that it stands out.
- - `tfc` is for checking numerics on tensorflow Tensors.
  - `tic` and `toc` are for measuring and logging timing of arbitrary chunks of code.
+ - `tictoc` combines `tic` and `toc` for use in loops and other code called repeatedly.
  - `time` is for measuring and logging timing stats for a callable.
  - `catch` is for catching exceptions from a callable.
  - `log_all_calls` is for wrapping `x` such that all public method calls and
@@ -464,44 +486,6 @@ qj: <some_file> some_func: arr, n=10 ...: (..., array([11, 14, 8, 6, 10, 13, 14,
 ```
 
 
-### You can add a `tensorflow.Print` call to `x` with `y = qj(some_tensor, t=1)`:
-```
-qj: <some_file> some_func: some_tensor, t=1 <258>: Tensor("some_tensor:0", ...)
-qj:                                                Wrapping return value in tf.Print operation.
-```
-And then later:
-```
-sess.run(y)
-
-qj: <some_file> some_func: some_tensor, t=1 <258>: [10 1] [[0.64550841]...
-```
-Note that the Tensorflow output includes the shape of the tensor first (`[10 1]`),
-followed by its value. This only works if x is a `tf.Tensor` object and
-`tensorflow` has already been imported somewhere in your code.
-
-The number of logs printed from the `tf.Print` call is `qj.MAX_FRAME_LOGS`
-(described [below](parameters), defaults to 200) if `t is True`. Otherwise,
-it is set to `int(t)`. Thus, `t=1` prints once, but `t=True` prints 200 times.
-
-
-### You can also turn on numerics checking for any `tf.Tensor` with `y = qj(some_tensor, tfc=1)`:
-For example, `log(0)` is not a number:
-```
-y = qj(tf.log(tensor_with_zeros), tfc=1)
-
-qj: <some_file> some_func: tf.log(tensor_with_zeros), tfc=1 <258>: Tensor("Log:0", ...)
-qj:                                                                Wrapping return value in tf.check_numerics.
-```
-And then later:
-```
-sess.run(y)
-
-InvalidArgumentError: qj: <some_file> some_func: tf.log(tensor_with_zeros), tfc=1 <258> : Tensor had Inf values
-```
-Note that tf.check_numerics is very slow, so you won't want to leave these in your graph.
-This also only works if x is a `tf.Tensor` object and `tensorflow` has already been
-imported somewhere in your code.
-
 ### You can override the return value of qj by passing any value to `r`:
 ```
 some_function(normal_arg, special_flag=qj(some_value, r=None))
@@ -660,11 +644,8 @@ qj: <some_file> some_func: foo, pad=3 <470>: foo
   2. `qj.LOG_FN`: Which log function to use. All log messages are passed to this
                   function as a fully-formed string, so the only constraints are
                   that this function takes a single parameter, and that it _is_
-                  a function -- e.g., you can't set `qj.LOG_FN = print` unless
-                  you are using `from __future__ import print_function` (although
-                  you can define your own log function that just calls print if
-                  you don't like the default). Defaults to `logging.info` wrapped
-                  in a lambda to support colorful logs.
+                  a function. Defaults to `logging.info` wrapped in a lambda to
+                  support colorful logs.
   3. `qj.STR_FN`: Which string conversion function to use. All objects to be logged
                   are passed to this function directly, so it must take an arbitrary
                   python object and return a python string. Defaults to `str`, but a
@@ -721,17 +702,7 @@ name and you call qj, you're going to have a bad time.
 
 ## Testing:
 
-qj has extensive tests. You can run them with nosetests:
-```
-$ nosetests
-........................................................................................
-----------------------------------------------------------------------
-Ran 88 tests in 1.341s
-
-OK
-```
-
-Or you can run them directly:
+qj has extensive tests. You can run them directly:
 ```
 $ python qj/tests/qj_test.py
 ........................................................................................
@@ -741,12 +712,6 @@ Ran 88 tests in 1.037s
 OK
 ```
 
-If you have both python 2.7 and python 3.6+ installed, you can test both versions:
-```
-$ nosetests --where=qj/tests --py3where=qj/tests --py3where=/qjtests3
-$ python3 qj/tests/qj_test.py
-$ python3 qj/tests3/qj_test.py
-```
 
 ## Disclaimer:
 

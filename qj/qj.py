@@ -44,15 +44,14 @@ def qj(x='',  # pylint: disable=invalid-name
        l=None,
        d=False,
        p=False,
-       t=False,
        n=False,
        r=_QJ_R_MAGIC,
        z=False,
        b=True,
        pad=False,
-       tfc=False,
        tic=False,
        toc=False,
+       tictoc=False,
        time=False,
        catch=False,
        log_all_calls=False,
@@ -72,14 +71,6 @@ def qj(x='',  # pylint: disable=invalid-name
        False.
     p: Optional bool to log the public properties of x, including basic call
        signatures of functions, if x is logged.
-    t: Optional bool to wrap x in a tensorflow.Print call. If x is a Tensor,
-       its value will be printed at graph execution time. The tensorflow.Print
-       calls will be prefixed with the value in s, or qj's default logging
-       prefix, just like any other qj log message. It also sets the
-       tensorflow.Print call to only print qj.MAX_FRAME_LOGS times, so that
-       it isn't too spammy when running the graph. The call attempts to validate
-       that tensorflow is available and that x can be passed to tensorflow.Print
-       before calling tensorflow.Print.
     n: Optional bool to log the shape, min, mean, and max values of x if numpy
        is available.
     r: Optional alternate return value to use instead of x if x is logged. Any
@@ -93,14 +84,14 @@ def qj(x='',  # pylint: disable=invalid-name
        that x is logged, assuming other conditions don't prevent logging).
     pad: Optional bool to add padding blank lines before and after the logs.
        Useful for visually extracting particular logs.
-    tfc: Optional bool to wrap x in a tensorflow.check_numerics call if x is a
-       Tensor.
     tic: Optional bool to begin recording a duration.
     toc: Optional bool to end recording a duration started with a previous
        `tic`. Logs the corresponding duration if there was a previous `tic`.
        `tic` and `toc` can be set in the same call -- `toc` is handled first,
        which allows you to measure the body of a loop or comprehension with a
        single call to `qj(tic=1, toc=1)`.
+    tictoc: Optional bool that combines `tic` and `toc`, so instead of calling
+       `qj(tic=1, toc=1)`, you can just call `qj(tictoc=1)`.
     time: Optional bool to turn on timing of a function call. Can be used as a
        decorator.  E.g., `@qj(time=100) def foo()...` will print timing stats
        every 100 calls to foo.
@@ -226,7 +217,7 @@ def qj(x='',  # pylint: disable=invalid-name
       # toc needs to be processed after tic here so that the log messages make sense
       # when using tic/toc in a single call in a loop.
       if toc and x == '':
-        if len(qj._tics):  # pylint: disable=g-explicit-length-test
+        if len(qj._tics):
           log = 'Computing toc.'
         else:
           log = 'Unable to compute toc -- no unmatched tic.'
@@ -291,84 +282,13 @@ def qj(x='',  # pylint: disable=invalid-name
         qj.LOG_FN('%s%s %sPublic properties:\n    %s' %
                   (qj.PREFIX, prefix_spaces, qj._COLOR_LOG(), '\n    '.join(docs)))
 
-      # If we requested tensorflow printing, wrap x in a tf.Print.
-      if t:
-        if (hasattr(x, '__module__') and
-            'tensorflow' in x.__module__):
-          prefix_spaces = ' ' * len(prefix)
-          if 'session' in x.__module__:
-            try:
-              # pylint: disable=g-import-not-at-top
-              try:
-                from tensorflow.compat.v1.python import debug as tf_debug
-              except ImportError:
-                from google3.third_party.tensorflow.python import debug as tf_debug
-              # pylint: enable=g-import-not-at-top
-              x = tf_debug.LocalCLIDebugWrapperSession(x)
-              x.add_tensor_filter('has_inf_or_nan', tf_debug.has_inf_or_nan)
-
-              qj.LOG_FN('%s%s %sWrapping tf session in tfdbg session.' %
-                        (qj.PREFIX, qj._COLOR_LOG(), prefix_spaces))
-            except:  # pylint: disable=bare-except
-              qj.LOG_FN('%s%s %sUnable to wrap tf session in tfdbg session. '
-                        'Make sure your BUILD rule depends on '
-                        '//tensorflow/python/debug:debug_py.' %
-                        (qj.PREFIX, qj._COLOR_LOG(), prefix_spaces))
-          else:
-            qj.LOG_FN('%s%s %sWrapping return value in tf.Print operation.' %
-                      (qj.PREFIX, qj._COLOR_LOG(), prefix_spaces))
-            try:
-              tfprint = sys.modules['tensorflow'].Print
-              tfshape = sys.modules['tensorflow'].shape
-            except:  # pylint: disable=bare-except
-              try:
-                tf = sys.modules.get(
-                    'tensorflow.python',
-                    sys.modules.get('google3.third_party.tensorflow.python'))
-                tfprint = tf.ops.logging_ops.Print
-                tfshape = tf.ops.array_ops.shape
-              except:  # pylint: disable=bare-except
-                tfprint = lambda x, *_, **__: x
-                tfshape = lambda x: []
-
-            x = tfprint(
-                x, [tfshape(x), x],
-                message='%s%s%s%s' % (qj._COLOR_PREFIX(), qj.PREFIX, prefix[:-1],
-                                      qj._COLOR_END()),
-                first_n=qj.MAX_FRAME_LOGS if t is True else int(t),
-                summarize=qj.MAX_FRAME_LOGS,
-                name='qj_print_%s_%d_%s' % (
-                    func_name.split(' ')[-1], f.f_lineno,
-                    x.name.replace('/', '_').replace(':', '_') if hasattr(x, 'name') else ''))
-
-      if tfc:
-        if (hasattr(x, '__module__') and
-            'tensorflow' in x.__module__):
-          try:
-            tfcheck = sys.modules['tensorflow'].check_numerics
-          except:  # pylint: disable=bare-except
-            try:
-              tf = sys.modules.get(
-                  'tensorflow.python',
-                  sys.modules.get('google3.third_party.tensorflow.python'))
-              tfcheck = tf.ops.gen_array_ops.check_numerics
-            except:  # pylint: disable=bare-except
-              tfcheck = lambda x, *_, **__: x
-
-          prefix_spaces = ' ' * len(prefix)
-          qj.LOG_FN('%s%s %sWrapping return value in tf.check_numerics.' %
-                    (qj.PREFIX, qj._COLOR_LOG(), prefix_spaces))
-          x = tfcheck(
-              x,
-              message='%s%s%s%s' % (
-                  qj._COLOR_PREFIX(), qj.PREFIX, prefix[:-1], qj._COLOR_END()),
-              name='qj_check_numerics_%s_%d_%s' % (
-                  func_name.split(' ')[-1], f.f_lineno,
-                  x.name.replace('/', '_').replace(':', '_') if hasattr(x, 'name') else ''))
+      # Set tic and toc to tictoc if it is set.
+      if tictoc:
+        tic = toc = tictoc
 
       # toc needs to be processed before tic, so that single call tic/toc works in loops.
       if toc:
-        if len(qj._tics):  # pylint: disable=g-explicit-length-test
+        if len(qj._tics):
           prefix_spaces = ' ' * len(prefix)
           toc = int(toc)
           if toc < 0:
@@ -529,13 +449,24 @@ def _standard_print(*args):
   return writer.s
 
 
-# Set up basic logging handler.
-logging.basicConfig(
-    format='%(asctime)s: %(message)s',
-    level=(
-        logging.getLogger().getEffectiveLevel()
-        if logging.getLogger().getEffectiveLevel() <= logging.INFO
-        else logging.INFO))
+def _get_qj_logger():
+    logger = logging.getLogger('qj')
+    logger.setLevel(logging.INFO)
+
+    # Check if handler already exists (to avoid duplicate handlers in repeated calls)
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter('%(asctime)s: %(message)s')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+
+    # Prevent messages from propagating to the root logger
+    logger.propagate = False
+
+    return logger
+
+
+qj._LOGGER = _get_qj_logger()
 
 qj.LOG = True
 qj.DEBUG_FN = None
@@ -551,7 +482,7 @@ qj._COLOR_LOG = lambda: (qj.COLOR and qj.LOG_COLOR) or ''
 qj._COLOR_END = lambda: (qj.COLOR and '\033[0m') or ''
 qj._COLOR_FN = lambda *args: (qj._COLOR_PREFIX() +
                               _standard_print(*args) + qj._COLOR_END())
-qj.LOG_FN = lambda *args: logging.info(qj._COLOR_FN(*args))
+qj.LOG_FN = lambda *args: qj._LOGGER.info(qj._COLOR_FN(*args))
 qj.MAX_FRAME_LOGS = 200
 qj.PREFIX = 'qj: '
 
@@ -574,7 +505,7 @@ qj._tics = []
 # the latest version and therefore also update the global copy of qj with the
 # latest version (so long as you don't break the lambda).  The lambda also
 # returns the symbol being made global (qj by default).
-_builtin_module_name = '__builtin__' if sys.version_info[0] < 3 else 'builtins'
+_builtin_module_name = 'builtins'
 qj.make_global = lambda sym=qj, name='qj', mod=sys.modules[_builtin_module_name]: (
     (name in dir(mod) and delattr(mod, name) and False) or
     (setattr(mod, name, sym) and False) or sym)  # Return sym
@@ -617,7 +548,7 @@ if not hasattr(sys.modules['__main__'], '__file__'):
 
   def _colab_log_fn(*args):
     captured = _start_capture()
-    logging.info(qj._COLOR_FN(*args))
+    qj._LOGGER.info(qj._COLOR_FN(*args))
     if captured:
       _end_capture()
 
@@ -689,11 +620,11 @@ def _disassemble3(co, lasti):
   _disassemble_bytes(co, lasti, linestarts)
 
 def _get_instruction_bytes(code, co, linestarts):
-  if sys.version_info[1] < 11:
+  if sys.version_info[0] == 3 and sys.version_info[1] < 11:  # >= 3.0, < 3.11
     return dis._get_instructions_bytes(code, co.co_varnames, co.co_names,
                                        co.co_consts, co.co_cellvars + co.co_freevars,
                                        linestarts)
-  else:
+  elif sys.version_info[0] == 3 and sys.version_info[1] < 13:  # >= 3.0, < 3.13
     return dis._get_instructions_bytes(
       code,
       varname_from_oparg=co._varname_from_oparg,
@@ -704,9 +635,25 @@ def _get_instruction_bytes(code, co, linestarts):
       exception_entries=(),
       co_positions=None,
       show_caches=False)
+  else:
+    return dis._get_instructions_bytes(
+      code,
+      # varname_from_oparg=co._varname_from_oparg,
+      # names=co.co_names,
+      # co_consts=co.co_consts,
+      linestarts=linestarts,
+      line_offset=0,
+      # exception_entries=(),
+      co_positions=None,
+      # show_caches=False,
+    )
 
 
 def _disassemble_bytes(co, lasti=-1, linestarts=None):
+  if sys.version_info[0] > 3 or sys.version_info[1] >= 13:  # >= 3.13
+    qj.LOG_FN('Disassembly:\n' + dis.Bytecode(co, current_offset=lasti if lasti > 0 else None).dis())
+    return
+
   # Omit the line number column entirely if we have no line number info
   show_lineno = linestarts is not None
   lineno_width = 3 if show_lineno else 0
@@ -739,7 +686,10 @@ def _build_instruction_stack3(co, lasti):
   for instr in _get_instruction_bytes(code, co, linestarts):
     # instr.{opname opcode arg argval argrepr offset starts_line is_jump_target}
     curr_i = instr.offset
-    curr_l = instr.starts_line or curr_l
+    if sys.version_info[0] > 3 or sys.version_info[1] >= 13:  # >= 3.13
+      curr_l = instr.line_number or curr_l
+    else:
+      curr_l = instr.starts_line or curr_l
 
     if curr_i > lasti:
       # In 3.11 the lasti value falls between instruction numbers for some reason, so we have to break both here and at the end of the loop.
@@ -749,6 +699,18 @@ def _build_instruction_stack3(co, lasti):
     opname = instr.opname
     oparg = instr.arg
     oparg_repr = instr.argval
+
+    if sys.version_info[0] > 3 or sys.version_info[1] >= 13:  # >= 3.13
+      _, oparg_repr = dis.ArgResolver(co_consts=co.co_consts, names=co.co_names, varname_from_oparg=co._varname_from_oparg,
+                                      labels_map=dis._make_labels_map(co.co_code)
+                                      ).get_argval_argrepr(op, instr.arg, instr.offset)
+      if isinstance(oparg_repr, str) and 'to L' in oparg_repr:
+        oparg_repr = ''
+      if isinstance(oparg_repr, str) and '|self' in oparg_repr:
+        oparg_repr = oparg_repr.replace('|self', '')
+      if isinstance(oparg_repr, str) and ' + NULL' in oparg_repr:
+        oparg_repr = oparg_repr.replace(' + NULL', '')
+
     if op >= opcode.HAVE_ARGUMENT:
 
       if opname.startswith('MAKE_') or opname.startswith('BUILD_'):
@@ -790,18 +752,37 @@ def _build_instruction_stack3(co, lasti):
           oparg_repr = ')'
         elif opname == 'CALL':
           oparg_repr = ')'
+        elif opname == 'CALL_KW':
+          oparg_repr = ')'
         elif opname == 'PRECALL':
+          oparg_repr = ''
+        elif opname == 'CALL_INTRINSIC_1':
+          oparg_repr = ''
+        elif opname == 'CALL_INTRINSIC_2':
           oparg_repr = ''
         elif opname == 'MAP_ADD':
           oparg_repr = ''
         elif opname == 'FOR_ITER':
           oparg_repr = ''
         elif opname == 'BINARY_OP':
-          oparg_repr = instr.argrepr
+          if sys.version_info[0] == 3 and sys.version_info[1] < 13:  # > 3, < 3.13
+            oparg_repr = instr.argrepr
         elif opname == 'LIST_EXTEND':
           oparg_repr = ''
+        elif opname == 'STORE_FAST_STORE_FAST':
+          oparg_repr = ''  # oparg_repr.split(', ')[0]
+        elif opname == 'STORE_FAST_LOAD_FAST':
+          oparg_repr = oparg_repr.split(', ')[0]
+        elif opname == 'LOAD_FAST_AND_CLEAR':
+          oparg_repr = ''
+        elif opname == 'STORE_FAST':
+          oparg_repr = ''
+        if opname == 'LOAD_FAST_LOAD_FAST':
+          oparg_repr = oparg_repr.split(', ')
       elif oparg == 0:
-        if opname == 'BUILD_LIST':
+        if opname == 'LOAD_FAST_LOAD_FAST':
+          oparg_repr = oparg_repr.split(', ')
+        elif opname == 'BUILD_LIST':
           # BUILD_LIST 0 occurs at the beginning of list comprehensions
           oparg_repr = '['
         elif opname == 'BUILD_TUPLE':
@@ -819,7 +800,8 @@ def _build_instruction_stack3(co, lasti):
         elif opname == 'PRECALL':
           oparg_repr = ''
         elif opname == 'BINARY_OP':
-          oparg_repr = instr.argrepr
+          if sys.version_info[0] == 3 and sys.version_info[1] < 13:  # > 3, < 3.13
+            oparg_repr = instr.argrepr
     else:
       # Ops without arguments.
       if opname == 'UNARY_POSITIVE':
@@ -915,6 +897,8 @@ _STACK_EFFECTS3 = {
     'DUP_TOP': 1,
     'DUP_TOP_TWO': 2,
 
+    'END_FOR': 0,
+
     'UNARY_POSITIVE': 0,
     'UNARY_NEGATIVE': 0,
     'UNARY_NOT': 0,
@@ -934,6 +918,8 @@ _STACK_EFFECTS3 = {
     'BINARY_FLOOR_DIVIDE': -1,
     'BINARY_TRUE_DIVIDE': -1,
     'BINARY_OP': -1,
+
+    'BINARY_SLICE': -2,
 
     'INPLACE_FLOOR_DIVIDE': -1,
     'INPLACE_TRUE_DIVIDE': -1,
@@ -1060,6 +1046,10 @@ _STACK_EFFECTS3 = {
     'WITH_EXCEPT_START': 1,
 
     'LOAD_FAST': 1,
+    'LOAD_FAST_LOAD_FAST': 1,
+    'LOAD_FAST_AND_CLEAR': 1,
+    'STORE_FAST_STORE_FAST': 0,
+    'STORE_FAST_LOAD_FAST': 1,
     'STORE_FAST': -1,
     'DELETE_FAST': 0,
     'STORE_ANNOTATION': -1,
@@ -1097,6 +1087,9 @@ _STACK_EFFECTS3 = {
     # TODO: in 3.11: 1
     'MATCH_KEYS': 2,
     'ROT_N': 0,
+
+    'CALL_INTRINSIC_1': 0,
+    'CALL_INTRINSIC_2': -2,
 }
 
 
@@ -1134,6 +1127,10 @@ def _stack_effect3(op_code, oparg):
     return -oparg
   if op_code == 'CALL':
     return -oparg
+  if op_code == 'CALL_KW':
+    return -oparg - 1
+  if op_code == 'CALL_ISINSTANCE':
+    return -oparg - 2
   if op_code == 'CALL_FUNCTION':
     return -oparg
   if op_code == 'CALL_METHOD':
@@ -1155,253 +1152,6 @@ def _stack_effect3(op_code, oparg):
   if op_code not in _STACK_EFFECTS3 and not qj._DEBUG_QJ:
     return 0  # Avoid crashing just because of updated bytecode functionality.
   return _STACK_EFFECTS3[op_code]
-
-
-#------------------------------------------------------------------------------
-# Python 2.7 Helpers
-#------------------------------------------------------------------------------
-def _findlinestarts(code):
-  """Find the offsets in a byte code which are start of lines in the source.
-
-  Generate pairs (offset, lineno) as described in Python/compile.c.
-
-  Arguments:
-    code: code object.
-
-  Yields:
-    Address and line number pairs.
-  """
-  byte_increments = [ord(c) for c in code.co_lnotab[0::2]]
-  line_increments = [ord(c) for c in code.co_lnotab[1::2]]
-
-  lastlineno = None
-  lineno = code.co_firstlineno
-  addr = 0
-  for byte_incr, line_incr in zip(byte_increments, line_increments):
-    if byte_incr:
-      if lineno != lastlineno:
-        yield (addr, lineno)
-        lastlineno = lineno
-      addr += byte_incr
-    lineno += line_incr
-  if lineno != lastlineno:
-    yield (addr, lineno)
-
-
-def _disassemble(co, lasti):
-  code = co.co_code
-  linestarts = dict(_findlinestarts(co))
-  n = len(code)
-  i = 0
-  extended_arg = 0
-  free = None
-  while i < n:
-    s = ''
-    c = code[i]
-    op = ord(c)
-    if i in linestarts:
-      if i > 0:
-        qj.LOG_FN('')
-      s += '%3d' % linestarts[i]
-    else:
-      s += '   '
-
-    if i == lasti:
-      s += '-->'
-    else:
-      s += '   '
-    s += repr(i).rjust(4) + ' '
-    s += opcode.opname[op].ljust(20)
-    i += 1
-    if op >= opcode.HAVE_ARGUMENT:
-      oparg = ord(code[i]) + ord(code[i + 1]) * 256 + extended_arg
-      extended_arg = 0
-      i += 2
-      if op == opcode.EXTENDED_ARG:
-        extended_arg = oparg * 65536
-      s += repr(oparg).rjust(5)
-      if op in opcode.hasconst:
-        s += '(' + repr(co.co_consts[oparg]) + ')'
-      elif op in opcode.hasname:
-        s += '(' + co.co_names[oparg] + ')'
-      elif op in opcode.hasjrel:
-        s += '(to ' + repr(i + oparg) + ')'
-      elif op in opcode.haslocal:
-        s += '(' + co.co_varnames[oparg] + ')'
-      elif op in opcode.hascompare:
-        s += '(' + opcode.cmp_op[oparg] + ')'
-      elif op in opcode.hasfree:
-        if free is None:
-          free = co.co_cellvars + co.co_freevars
-        s += '(' + free[oparg] + ')'
-    qj.LOG_FN(s)
-
-
-_STACK_EFFECTS = {
-    'POP_TOP': -1,
-    'ROT_TWO': 0,
-    'ROT_THREE': 0,
-    'DUP_TOP': 1,
-    'ROT_FOUR': 0,
-
-    'UNARY_POSITIVE': 0,
-    'UNARY_NEGATIVE': 0,
-    'UNARY_NOT': 0,
-    'UNARY_CONVERT': 0,
-    'UNARY_INVERT': 0,
-
-    'SET_ADD': -1,
-    'LIST_APPEND': -1,
-
-    'MAP_ADD': -2,
-
-    'BINARY_POWER': -1,
-    'BINARY_MULTIPLY': -1,
-    'BINARY_DIVIDE': -1,
-    'BINARY_MODULO': -1,
-    'BINARY_ADD': -1,
-    'BINARY_SUBTRACT': -1,
-    'BINARY_SUBSCR': -1,
-    'BINARY_FLOOR_DIVIDE': -1,
-    'BINARY_TRUE_DIVIDE': -1,
-    'INPLACE_FLOOR_DIVIDE': -1,
-    'INPLACE_TRUE_DIVIDE': -1,
-
-    'SLICE+0': 0,
-    'SLICE+1': -1,
-    'SLICE+2': -1,
-    'SLICE+3': -2,
-
-    'STORE_SLICE+0': -2,
-    'STORE_SLICE+1': -3,
-    'STORE_SLICE+2': -3,
-    'STORE_SLICE+3': -4,
-
-    'DELETE_SLICE+0': -1,
-    'DELETE_SLICE+1': -2,
-    'DELETE_SLICE+2': -2,
-    'DELETE_SLICE+3': -3,
-
-    'INPLACE_ADD': -1,
-    'INPLACE_SUBTRACT': -1,
-    'INPLACE_MULTIPLY': -1,
-    'INPLACE_DIVIDE': -1,
-    'INPLACE_MODULO': -1,
-    'STORE_SUBSCR': -3,
-    'STORE_MAP': -2,
-    'DELETE_SUBSCR': -2,
-
-    'BINARY_LSHIFT': -1,
-    'BINARY_RSHIFT': -1,
-    'BINARY_AND': -1,
-    'BINARY_XOR': -1,
-    'BINARY_OR': -1,
-    'INPLACE_POWER': -1,
-    'GET_ITER': 0,
-
-    'PRINT_EXPR': -1,
-    'PRINT_ITEM': -1,
-    'PRINT_NEWLINE': 0,
-    'PRINT_ITEM_TO': -2,
-    'PRINT_NEWLINE_TO': -1,
-    'INPLACE_LSHIFT': -1,
-    'INPLACE_RSHIFT': -1,
-    'INPLACE_AND': -1,
-    'INPLACE_XOR': -1,
-    'INPLACE_OR': -1,
-    'BREAK_LOOP': 0,
-    'SETUP_WITH': 4,
-    # Originally was -1 with note that it's sometimes more.
-    # Better to balance with SETUP_WITH.
-    # TODO(iansf): Still doesn't work.
-    'WITH_CLEANUP': -1,
-    'LOAD_LOCALS': 1,
-    'RETURN_VALUE': -1,
-    'IMPORT_STAR': -1,
-    'EXEC_STMT': -3,
-    'YIELD_VALUE': 0,
-
-    'POP_BLOCK': 0,
-    'END_FINALLY': -3,  # or -1 or -2 if no exception occurred or break/continue
-    'BUILD_CLASS': -2,
-
-    'STORE_NAME': -1,
-    'DELETE_NAME': 0,
-    # 1 at start of iterator, -1 at end of iterator, balances out to 0
-    'FOR_ITER': 0,
-
-    'STORE_ATTR': -2,
-    'DELETE_ATTR': -1,
-    'STORE_GLOBAL': -1,
-    'DELETE_GLOBAL': 0,
-    'LOAD_CONST': 1,
-    'LOAD_NAME': 1,
-    'BUILD_MAP': 1,
-    'LOAD_ATTR': 0,
-    'COMPARE_OP': -1,
-    'IMPORT_NAME': -1,
-    'IMPORT_FROM': 1,
-
-    'JUMP_FORWARD': 0,
-    'JUMP_IF_TRUE_OR_POP': 0,  # -1 if jump not taken
-    'JUMP_IF_FALSE_OR_POP': 0,  # -1 if jump not taken
-    'JUMP_ABSOLUTE': 0,
-
-    'POP_JUMP_IF_FALSE': -1,
-    'POP_JUMP_IF_TRUE': -1,
-
-    'LOAD_GLOBAL': 1,
-
-    'CONTINUE_LOOP': 0,
-    'SETUP_LOOP': 0,
-    'SETUP_EXCEPT': 0,
-    'SETUP_FINALLY': 0,
-
-    'LOAD_FAST': 1,
-    'STORE_FAST': -1,
-    'DELETE_FAST': 0,
-
-    'LOAD_CLOSURE': 1,
-    'LOAD_DEREF': 1,
-    'STORE_DEREF': -1,
-}
-
-
-def _stack_effect(op_code, oparg):
-  """Compute the effect an op_code and oparg have on the stack.  See python/compile.c."""
-  n_args = lambda o: (o % 256) + 2 * (o // 256)
-
-  if op_code == 'DUP_TOPX':
-    return oparg
-  elif op_code == 'UNPACK_SEQUENCE':
-    return oparg - 1
-  elif op_code == 'BUILD_TUPLE':
-    return -oparg  # Was 1 - oparg
-  elif op_code == 'BUILD_LIST':
-    return -oparg  # Was 1 - oparg
-  elif op_code == 'BUILD_SET':
-    return -oparg  # Was 1 - oparg
-  elif op_code == 'RAISE_VARARGS':
-    return -oparg
-  elif op_code == 'CALL_FUNCTION':
-    return -n_args(oparg)  # args + (#kwargs << 8)
-  elif op_code == 'CALL_FUNCTION_VAR':
-    return -n_args(oparg) - 1  # args + (#kwargs << 8)
-  elif op_code == 'CALL_FUNCTION_KW':
-    return -n_args(oparg) - 1  # args + (#kwargs << 8)
-  elif op_code == 'CALL_FUNCTION_VAR_KW':
-    return -n_args(oparg) - 2  # args + (#kwargs << 8)
-  elif op_code == 'MAKE_FUNCTION':
-    return -oparg
-  elif op_code == 'BUILD_SLICE':
-    if oparg == 3:
-      return -2
-    else:
-      return -1
-  elif op_code == 'MAKE_CLOSURE':
-    return -oparg - 1
-
-  return _STACK_EFFECTS[op_code]
 
 
 class _StackEntry(object):
@@ -1477,46 +1227,35 @@ def _annotate_fn_args(stack, fn_opname, nargs, nkw=-1, consume_fn_name=True):
   """Add commas and equals as appropriate to function argument lists in the stack."""
   kwarg_names = []
   if nkw == -1:
-    if sys.version_info[0] < 3:
-      # Compute nkw and nargs from nargs for python 2.7
-      nargs, nkw = (nargs % 256, 2 * nargs // 256)
+    if fn_opname == 'CALL_FUNCTION_KW':
+      if qj._DEBUG_QJ:
+        assert len(stack) and stack[-1].opname == 'LOAD_CONST'
+      if not len(stack) or stack[-1].opname != 'LOAD_CONST':
+        return
+      se = stack.pop()
+      kwarg_names = se.oparg_repr[::-1]
+      se.oparg_repr = ['']
+      nkw = len(kwarg_names)
+      nargs -= nkw
+      if qj._DEBUG_QJ:
+        assert nargs >= 0 and nkw > 0
     else:
-      if fn_opname == 'CALL_FUNCTION_KW':
-        if qj._DEBUG_QJ:
-          assert len(stack) and stack[-1].opname == 'LOAD_CONST'
-        if not len(stack) or stack[-1].opname != 'LOAD_CONST':
-          return
-        se = stack.pop()
-        kwarg_names = se.oparg_repr[::-1]
-        se.oparg_repr = ['']
-        nkw = len(kwarg_names)
-        nargs -= nkw
-        if qj._DEBUG_QJ:
-          assert nargs >= 0 and nkw > 0
-      else:
-        nkw = 0
+      nkw = 0
 
   for i in range(nkw):
     se = stack.pop()
     if se.stack_depth == 0 and (len(se.oparg_repr) == 0 or se.oparg_repr[0] == ''):
       # Skip stack entries that don't have any effect on the stack
       continue
-    if i % 2 == 1 and sys.version_info[0] < 3:
-      if qj._DEBUG_QJ:
-        assert se.opname == 'LOAD_CONST'
-      if se.opname == 'LOAD_CONST':
-        # kwargs are pairs of key=value in code
-        se.oparg_repr += ['=']
-    else:
-      pops = []
-      if se.opname.startswith('CALL_FUNCTION'):
-        _annotate_fn_args(stack[:], se.opname, se.oparg, -1, True)
-      pops = _collect_pops(stack, se.stack_depth - 1 if se.opname.startswith('CALL_FUNCTION') else 0, [], False)
-      if i > 1 and len(pops):
-        pops[-1].oparg_repr += [',']
-      if sys.version_info[0] >= 3:
-        target_se = pops[-1] if len(pops) else se
-        target_se.oparg_repr = [kwarg_names[i], '='] + target_se.oparg_repr
+    pops = []
+    if se.opname.startswith('CALL_FUNCTION'):
+      _annotate_fn_args(stack[:], se.opname, se.oparg, -1, True)
+    pops = _collect_pops(stack, se.stack_depth - 1 if se.opname.startswith('CALL_FUNCTION') else 0, [], False)
+    if i > 1 and len(pops):
+      pops[-1].oparg_repr += [',']
+
+    target_se = pops[-1] if len(pops) else se
+    target_se.oparg_repr = [kwarg_names[i], '='] + target_se.oparg_repr
 
   for i in range(nargs):
     se = stack.pop()
@@ -1536,7 +1275,7 @@ def _annotate_fn_args(stack, fn_opname, nargs, nkw=-1, consume_fn_name=True):
 
 def _collect_pops(stack, depth, pops, skip):
   """Recursively collects stack entries off the top of the stack according to the stack entry's depth."""
-  if depth >= 0:
+  if depth >= 0 or len(stack) == 0:
     return pops
 
   set_current_depth_after_recursion = False
@@ -1556,7 +1295,6 @@ def _collect_pops(stack, depth, pops, skip):
     skip = -se.stack_depth + 1
 
   if (pops_len > 2
-      and sys.version_info[0] >= 3
       and se.opname == 'BUILD_TUPLE'
       and pops[-1].opname == 'LOAD_CONST'
       and pops[-1].oparg_repr[0] in ['lambda', '{', '(', '[']
@@ -1571,7 +1309,7 @@ def _collect_pops(stack, depth, pops, skip):
     # CALL_FUNCTION or PRECALL followed by GET_ITER means we are calling one of the comprehensions and we are about to load its arguments.
     # The CALL_FUNCTION or PRECALL at the top of the stack should be invisible, since it expects a ')' which won't appear in the code.
     if pops[-1].opname == 'PRECALL' and len(pops) > 2 and pops[-2].opname == 'CALL':
-      # In the case of the PRECALL CALL patter, the CALL has the expected ')' that shouldn't appear.
+      # In the case of the PRECALL CALL pattern, the CALL has the expected ')' that shouldn't appear.
       pops[-2].oparg_repr = ['']
     else:
       # Otherwise it's the CALL_FUNCTION that needs modification
@@ -1630,7 +1368,6 @@ def _collect_pops(stack, depth, pops, skip):
     se.stack_depth = 0
 
   if (pops_len > 0
-      and sys.version_info[0] >= 3
       and se.opname == 'LOAD_CONST'
       and pops[-1].opname == 'MAKE_FUNCTION'):
     # In python 3, MAKE_FUNCTION followed by LOAD_CONST is loading the name of the function, which won't appear in the code.
@@ -1652,7 +1389,7 @@ def _collect_pops(stack, depth, pops, skip):
 
   children_skip = skip
   if (se.opname.startswith('UNARY_')
-      or (se.opname.startswith('BINARY_') and se.opname != 'BINARY_SUBSCR')
+      or (se.opname.startswith('BINARY_') and se.opname != 'BINARY_SUBSCR' and se.opname != 'BINARY_SLICE')
       or se.opname == 'SLICE+2'
       or se.opname == 'SLICE+3'
       or se.opname == 'COMPARE_OP'):
@@ -1690,7 +1427,7 @@ def _collect_pops(stack, depth, pops, skip):
 
     if set_skip_for_current_entry_children or skip > 0:
       children_skip = abs(next_depth)
-    if se.opname == 'BUILD_SLICE':
+    if se.opname == 'BUILD_SLICE' or se.opname == 'BINARY_SLICE':
       # BUILD_SLICE's arguments need to be collected, as missing args are replaced with Nones which don't appear in the code.
       slice_pops = _collect_pops(stack, next_depth, [], children_skip)
       added_colon = 0
@@ -1735,7 +1472,7 @@ def _collect_pops(stack, depth, pops, skip):
 
   pops = _collect_pops(stack, depth + popped_depth, pops, skip)
 
-  if len(tokens):  # pylint: disable=g-explicit-length-test
+  if len(tokens):
     target_se = pops[-1]
     target_se.children.append(tokens)
     target_se.oparg_repr = target_se.oparg_repr[:1] + [t for token in tokens for t in token.oparg_repr] + target_se.oparg_repr[1:]
@@ -1746,296 +1483,139 @@ def _collect_pops(stack, depth, pops, skip):
   return pops
 
 
-def _build_instruction_stack(co, lasti):
-  code = co.co_code
-
-  linestarts = dict(_findlinestarts(co))
-
-  instr_to_ops = collections.OrderedDict()
-
-  num_instr = len(code)
-
-  if qj._DEBUG_QJ:
-    assert lasti < num_instr
-  if lasti >= num_instr:
-    return ''
-
-  instr = 0
-  extended_arg = 0
-  free = None
-  curr_l = 0
-  while instr <= lasti:
-    curr_i = instr
-    if instr in linestarts:
-      curr_l = linestarts[instr]
-
-    op = ord(code[instr])
-    opname = opcode.opname[op]
-
-    oparg = -1
-    oparg_repr = ''
-
-    instr += 1
-
-    if op >= opcode.HAVE_ARGUMENT:
-      oparg = ord(code[instr]) + ord(code[instr + 1]) * 256 + extended_arg
-      extended_arg = 0
-      instr += 2
-      if op == opcode.EXTENDED_ARG:
-        extended_arg = oparg * 65536
-
-      if op in opcode.hasconst:
-        oparg_repr = co.co_consts[oparg]
-        if isinstance(oparg_repr, types.CodeType):
-          qj._DEBUG_QJ and qj._DISASSEMBLE_FN(oparg_repr, -1)
-          if oparg_repr.co_name == '<lambda>':
-            oparg_repr = ['lambda', ':']
-          elif oparg_repr.co_name == '<dictcomp>' or oparg_repr.co_name == '<setcomp>':
-            oparg_repr = ['{', '}']
-          elif oparg_repr.co_name == '<genexpr>':
-            oparg_repr = ['(', ')']
-          else:
-            oparg_repr = ''
-      elif op in opcode.hasname:
-        oparg_repr = co.co_names[oparg]
-      elif op in opcode.hasjrel:
-        oparg_repr = ''  # instr + oparg
-      elif op in opcode.haslocal:
-        oparg_repr = co.co_varnames[oparg]
-        if oparg_repr.startswith('.'):
-          oparg_repr = ''  # Skip unnamed locals like .0
-      elif op in opcode.hascompare:
-        oparg_repr = opcode.cmp_op[oparg]
-      elif op in opcode.hasfree:
-        if free is None:
-          free = co.co_cellvars + co.co_freevars
-        oparg_repr = free[oparg]
-
-      if oparg > 0:
-        if opname == 'BUILD_LIST':
-          oparg_repr = ']'
-        elif opname == 'BUILD_TUPLE':
-          oparg_repr = ')'
-        elif opname == 'BUILD_SET':
-          oparg_repr = '}'
-        elif opname == 'BUILD_MAP':
-          oparg_repr = '{'  # BUILD_MAP happens at the beginning of the map
-        elif opname == 'LIST_APPEND':
-          oparg_repr = ']'
-        elif opname == 'SET_ADD':
-          oparg_repr = ''
-        elif opname.startswith('CALL_FUNCTION'):
-          oparg_repr = ')'
-        elif opname == 'MAP_ADD':
-          oparg_repr = ''
-        elif opname == 'FOR_ITER':
-          oparg_repr = ''
-        else:
-          oparg_repr = ''  # Default representation is empty.
-
-      elif oparg == 0:
-        if opname == 'BUILD_LIST':
-          # BUILD_LIST 0 occurs at the beginning of list comprehensions
-          oparg_repr = '['
-        elif opname == 'BUILD_TUPLE':
-          oparg_repr = '('
-        elif opname == 'BUILD_SET':
-          oparg_repr = '{'
-        elif opname == 'BUILD_MAP':
-          oparg_repr = '{'
-        elif opname.startswith('CALL_FUNCTION'):
-          oparg_repr = ')'
-        elif opname == 'MAKE_CLOSURE':
-          oparg_repr = ''
-        else:
-          oparg_repr = ''  # Default representation is empty.
-
-    else:
-      # Ops without arguments.
-      if opname == 'UNARY_POSITIVE':
-        oparg_repr = '+'
-      elif opname == 'UNARY_NEGATIVE':
-        oparg_repr = '-'
-      elif opname == 'UNARY_NOT':
-        oparg_repr = ''  # TODO(iansf)
-      elif opname == 'UNARY_CONVERT':
-        oparg_repr = ''  # TODO(iansf)
-      elif opname == 'UNARY_INVERT':
-        oparg_repr = '~'
-      elif opname == 'BINARY_POWER':
-        oparg_repr = '**'
-      elif opname == 'BINARY_MULTIPLY':
-        oparg_repr = '*'
-      elif opname == 'BINARY_DIVIDE':
-        oparg_repr = '/'
-      elif opname == 'BINARY_MODULO':
-        oparg_repr = '%'
-      elif opname == 'BINARY_ADD':
-        oparg_repr = '+'
-      elif opname == 'BINARY_SUBTRACT':
-        oparg_repr = '-'
-      elif opname == 'BINARY_SUBSCR':
-        oparg_repr = ']'
-      elif opname == 'BINARY_FLOOR_DIVIDE':
-        oparg_repr = '//'
-      elif opname == 'BINARY_TRUE_DIVIDE':
-        oparg_repr = '/'
-      elif opname == 'BINARY_LSHIFT':
-        oparg_repr = '<<'
-      elif opname == 'BINARY_RSHIFT':
-        oparg_repr = '>>'
-      elif opname == 'BINARY_AND':
-        oparg_repr = '&'
-      elif opname == 'BINARY_XOR':
-        oparg_repr = '^'
-      elif opname == 'BINARY_OR':
-        oparg_repr = '|'
-      elif opname == 'GET_ITER':
-        oparg_repr = ''
-      elif opname.startswith('SLICE+'):
-        oparg_repr = ':'
-      else:
-        oparg_repr = ''  # Default representation is empty.
-
-    stack_entry = _StackEntry(
-        _stack_effect(opname, oparg),
-        curr_i,
-        curr_l,
-        opname,
-        oparg,
-        oparg_repr if isinstance(oparg_repr, list) else [str(oparg_repr)],
-        [],  # children
-    )
-
-    instr_to_ops[curr_i] = stack_entry
-
-  stack = [instr_to_ops[curr_i] for curr_i in sorted(instr_to_ops.keys())]
-  qj._DEBUG_QJ and [qj.LOG_FN('se: %s' % str(se)) for se in stack] and qj.LOG_FN('\n\n')
-
-  return stack
-
-
 def _find_current_fn_call(co, lasti):
   """Find current function call in the byte code."""
-  qj._DEBUG_QJ and qj.LOG_FN('co = {}'.format(co))
+  try:
+    qj._DEBUG_QJ and qj.LOG_FN('co = {}'.format(co))
 
-  if sys.version_info[0] < 3:
-    stack = _build_instruction_stack(co, lasti)
-  else:
     stack = _build_instruction_stack3(co, lasti)
 
-  source_lines, source_offset = inspect.getsourcelines(co)
-  source_lines = [l.strip() for l in source_lines]
+    source_lines, source_offset = inspect.getsourcelines(co)
+    source_lines = [l.strip() for l in source_lines]
 
-  # Apply stack effects backwards until we arrive at the stack entries for a complete function call
-  fn_stack = _collect_pops(stack[:-1], stack[-1].stack_depth, [], 0)
+    # Apply stack effects backwards until we arrive at the stack entries for a complete function call
+    fn_stack = _collect_pops(stack[:-1], stack[-1].stack_depth, [], 0)
 
-  if not fn_stack and stack[-1].stack_depth == 0:
-    # The function call took 0 arguments, so return early with a special string.
-    return '<empty log>'
+    if ((sys.version_info[0] > 3 or sys.version_info[1] >= 13)  # >= 3.13
+        and stack[-1].opname == 'CALL_KW'
+        and fn_stack[0].opname == 'LOAD_CONST'
+       ):
+      # We have to detect this here rather than in _collect_pops, since we don't pass in the CALL_KW
+      # to _collect_pops in the case that we're calling qj with keyword args. The first LOAD_CONST
+      # is the set of kwarg names, and it's difficult to deal with them, so we'll just empty them out.
+      fn_stack[0].oparg_repr = ['']
 
-  qj._DEBUG_QJ and qj.LOG_FN('collected fn_stack:\n%s\n\n' % '\n'.join(str(se) for se in fn_stack))
+    if not fn_stack and stack[-1].stack_depth == 0:
+      # The function call took 0 arguments, so return early with a special string.
+      return '<empty log>'
 
-  # Prepare to annotate the stack with extra symbols, and filter out MAKE_FUNCTION and MAKE_CLOSURE calls, which are no longer needed.
-  annotate_stack = [se for se in fn_stack if not se.opname.startswith('MAKE_')]
-  annotate_stack.reverse()
-  _annotate_fn_args(annotate_stack, stack[-1].opname, stack[-1].oparg, -1, False)
+    qj._DEBUG_QJ and qj.LOG_FN('collected fn_stack:\n%s\n\n' % '\n'.join(str(se) for se in fn_stack))
 
-  qj._DEBUG_QJ and qj.LOG_FN('annotated fn_stack:\n%s\n\n' % '\n'.join(str(se) for se in fn_stack))
+    # Prepare to annotate the stack with extra symbols, and filter out MAKE_FUNCTION and MAKE_CLOSURE calls, which are no longer needed.
+    annotate_stack = [se for se in fn_stack if not se.opname.startswith('MAKE_')]
+    annotate_stack.reverse()
+    _annotate_fn_args(annotate_stack, stack[-1].opname, stack[-1].oparg, -1, False)
 
-  # Find the range of lines to search over.
-  min_l = stack[-1].curr_l
-  max_l = stack[0].curr_l
-  for se in fn_stack:
-    min_l = min(min_l, se.curr_l)
-    max_l = max(max_l, se.curr_l)
+    qj._DEBUG_QJ and qj.LOG_FN('annotated fn_stack:\n%s\n\n' % '\n'.join(str(se) for se in fn_stack))
 
-  qj._DEBUG_QJ and qj.LOG_FN('source lines range: %d -> %d (indices: %d, %d)' % (min_l, max_l, min_l - source_offset, max_l - source_offset + 1))
-  source_chunk = ' '.join(
-      [l for l in source_lines[min_l - source_offset:max_l - source_offset + 1] if l and not l.startswith('#')])
+    # Find the range of lines to search over.
+    min_l = stack[-1].curr_l
+    max_l = stack[0].curr_l
+    for se in fn_stack:
+      min_l = min(min_l, se.curr_l)
+      max_l = max(max_l, se.curr_l)
 
-  qj._DEBUG_QJ and qj.LOG_FN('source_chunk: %r' % source_chunk)
+    qj._DEBUG_QJ and qj.LOG_FN('source lines range: %d -> %d (indices: %d, %d)' % (min_l, max_l, min_l - source_offset, max_l - source_offset + 1))
+    source_chunk = ' '.join(
+        [l for l in source_lines[min_l - source_offset:max_l - source_offset + 1] if l and not l.startswith('#')])
 
-  # Build up all of the tokens for the function call.
-  tokens = []
-  for se in fn_stack:
-    opname = se.opname
-    for oparg_repr in se.oparg_repr[::-1]:
-      # Clean up the tokens
-      if not oparg_repr:
-        continue
-      oparg_repr = re.escape(oparg_repr.replace('\n', '\\n'))
-      tokens.append(oparg_repr)
+    qj._DEBUG_QJ and qj.LOG_FN('source_chunk: %r' % source_chunk)
 
-  tokens.reverse()
-  qj._DEBUG_QJ and qj.LOG_FN('extracted tokens: {}'.format(tokens))
-  if qj._DEBUG_QJ:
-    assert tokens
+    # Build up all of the tokens for the function call.
+    tokens = []
+    for se in fn_stack:
+      opname = se.opname
+      for oparg_repr in se.oparg_repr[::-1]:
+        # Clean up the tokens
+        if not oparg_repr:
+          continue
+        oparg_repr = re.escape(oparg_repr.replace('\n', '\\n'))
+        tokens.append(oparg_repr)
 
-  # Add tokens for the function call we're extracting.
-  tokens = ['\\('] + tokens + ['\\)']
-
-  reg = r'[\b]*?.*?[\b]*?'.join(tokens)
-  qj._DEBUG_QJ and qj.LOG_FN(reg)
-
-  # Search for the function call using the full set of tokens.
-  # Expand the search with source lines after the current set if we don't find a match.
-  shortest_match = None
-  match_attempts = 0
-  max_match_attempts = 10
-  while not shortest_match and match_attempts < max_match_attempts:
-    (shortest_match, _, _) = (
-        _find_earliest_shortest_match(source_chunk, reg, 0, len(source_chunk), num_attempts=10))
-    if not shortest_match:
-      match_attempts += 1
-
-      min_l -= 1
-      prev_line = ''
-      while not prev_line and min_l - source_offset >= 0 and min_l - source_offset < len(source_lines):
-        prev_line = source_lines[min_l - source_offset]
-        if prev_line.startswith('#'):
-          prev_line = ''
-        if not prev_line:
-          min_l -= 1
-      prev_line += ' ' if prev_line else ''
-      source_chunk = prev_line + source_chunk
-
-      max_l += 1
-      next_line = ''
-      while not next_line and max_l - source_offset >= 0 and max_l - source_offset < len(source_lines):
-        next_line = source_lines[max_l - source_offset]
-        if next_line.startswith('#'):
-          next_line = ''
-        if not next_line:
-          max_l += 1
-      next_line = (' ' if next_line else '') + next_line
-      source_chunk += next_line
-
-  # Return the string for the function call
-  if qj._DEBUG_QJ:
-    assert shortest_match
-  if shortest_match is not None:
-    match = shortest_match.group(0)
+    tokens.reverse()
+    qj._DEBUG_QJ and qj.LOG_FN('extracted tokens: {}'.format(tokens))
     if qj._DEBUG_QJ:
-      assert match.startswith('(') and match.endswith(')')
-    # Do some parentheses cleanup.
-    if match.startswith('('):
-      match = match[1:]
-    lparens = match.count('(')
-    rparens = match.count(')')
-    if lparens > rparens:
-      match += ')' * (lparens - rparens)
-    elif lparens < rparens:
-      rparens_to_remove = rparens - lparens
-      while len(match) and match[-1] == ')' and rparens_to_remove > 0:
-        match = match[:-1]
-        rparens_to_remove -= 1
-    match = match.strip()
-    return match
-  else:
+      assert tokens
+
+    # Add tokens for the function call we're extracting.
+    tokens = ['\\('] + tokens + ['\\)']
+
+    reg = r'[\b]*?.*?[\b]*?'.join(tokens)
+    qj._DEBUG_QJ and qj.LOG_FN(reg)
+
+    # Search for the function call using the full set of tokens.
+    # Expand the search with source lines after the current set if we don't find a match.
+    shortest_match = None
+    match_attempts = 0
+    max_match_attempts = 10
+    while not shortest_match and match_attempts < max_match_attempts:
+      (shortest_match, _, _) = (
+          _find_earliest_shortest_match(source_chunk, reg, 0, len(source_chunk), num_attempts=10))
+      if not shortest_match:
+        match_attempts += 1
+
+        min_l -= 1
+        prev_line = ''
+        while not prev_line and min_l - source_offset >= 0 and min_l - source_offset < len(source_lines):
+          prev_line = source_lines[min_l - source_offset]
+          if prev_line.startswith('#'):
+            prev_line = ''
+          if not prev_line:
+            min_l -= 1
+        prev_line += ' ' if prev_line else ''
+        source_chunk = prev_line + source_chunk
+
+        max_l += 1
+        next_line = ''
+        while not next_line and max_l - source_offset >= 0 and max_l - source_offset < len(source_lines):
+          next_line = source_lines[max_l - source_offset]
+          if next_line.startswith('#'):
+            next_line = ''
+          if not next_line:
+            max_l += 1
+        next_line = (' ' if next_line else '') + next_line
+        source_chunk += next_line
+
+    # Return the string for the function call
+    if qj._DEBUG_QJ:
+      assert shortest_match
+    if shortest_match is not None:
+      match = shortest_match.group(0)
+      if qj._DEBUG_QJ:
+        assert match.startswith('(') and match.endswith(')')
+      # Do some parentheses cleanup.
+      if match.startswith('('):
+        match = match[1:]
+      lparens = match.count('(')
+      rparens = match.count(')')
+      if lparens > rparens:
+        match += ')' * (lparens - rparens)
+      elif lparens < rparens:
+        rparens_to_remove = rparens - lparens
+        while len(match) and match[-1] == ')' and rparens_to_remove > 0:
+          match = match[:-1]
+          rparens_to_remove -= 1
+      match = match.strip()
+      return match
+    else:
+      return ''
+  except Exception:  # pylint: disable=broad-exception-caught
+    if qj._DEBUG_QJ:
+      raise
+    # Under normal circumstances, never crash when trying to get the source code.
     return ''
 
-qj._DISASSEMBLE_FN = _disassemble if sys.version_info[0] < 3 else _disassemble3
+qj._DISASSEMBLE_FN = _disassemble3
 
 ###############################################################################
 # End Code Correlation Code
