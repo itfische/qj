@@ -39,6 +39,4 @@ setuptools.setup(
     packages=['qj', 'qj_global'],
     license='Apache 2.0',
     install_requires=[],
-    test_suite='nose.collector',
-    tests_require=['mock'],
 )
