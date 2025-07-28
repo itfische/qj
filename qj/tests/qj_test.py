@@ -344,6 +344,19 @@ class QjTest(unittest.TestCase):
       mock_log_fn.assert_not_called()
       self.assertIs(out, input_value)
 
+  def test_logs_with_n(self):
+    with mock.patch('logging.info') as mock_log_fn:
+      import numpy  # qj doesn't try to use numpy if it hasn't been imported by someone
+      qj.LOG_FN = mock_log_fn
+      in_ = list(range(10))
+      out = qj(in_, n=1)
+      mock_log_fn.assert_has_calls([
+          mock.call(RegExp(
+              r"qj: <qj_test> test_logs_with_n: in_, n=1 \(shape \(min \(mean std\) max\) hist\) <\d+>: \(\(10,\), \(0\.0, \(4\.5, 2\.8\d+\), 9\.0\), \[2, 2, 2, 2, 2\]\)")),
+      ], any_order=False)
+      self.assertEqual(mock_log_fn.call_count, 1)
+      self.assertListEqual(in_, out)
+
   def test_logs_with_indentation(self):
     with mock.patch('logging.info') as mock_log_fn:
       qj.LOG_FN = mock_log_fn

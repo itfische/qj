@@ -198,12 +198,12 @@ def qj(x='',  # pylint: disable=invalid-name
         try:
           np = sys.modules['numpy']
           np_x = np.array(x)
-          log = str((np_x.shape, (np.min(np_x),
-                                  (np.mean(np_x), np.std(np_x)),
-                                  np.max(np_x)),
+          log = str((np_x.shape, (float(np.min(np_x)),
+                                  (float(np.mean(np_x)), float(np.std(np_x))),
+                                  float(np.max(np_x))),
                      np.histogram(np_x,
                                   bins=max(int(n),
-                                           min(np.prod(np_x.shape), 5)))[0]
+                                           min(np.prod(np_x.shape), 5)))[0].tolist()
                     ))
           s = s or str(type(x))
           s += ' (shape (min (mean std) max) hist)'
