@@ -17,11 +17,6 @@
 Import like this:
   from qj import qj
 """
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import collections
 import dis
 import functools
@@ -33,29 +28,31 @@ import re
 import sys
 import time as _time
 import types
+from typing import Any, Callable
 
 
 _QJ_R_MAGIC = 0x93218231
 
 
 # pylint: disable=g-long-lambda, protected-access, expression-not-assigned, line-too-long
-def qj(x='',  # pylint: disable=invalid-name
-       s='',
-       l=None,
-       d=False,
-       p=False,
-       n=False,
-       r=_QJ_R_MAGIC,
-       z=False,
-       b=True,
-       pad=False,
-       tic=False,
-       toc=False,
-       tictoc=False,
-       time=False,
-       catch=False,
-       log_all_calls=False,
-       _depth=1):
+# pyright: reportFunctionMemberAccess=false, reportUnusedExpression=false
+def qj(x: Any = '',  # pylint: disable=invalid-name
+       s: str | Any = '',
+       l: Callable | None = None,
+       d: bool | int = False,
+       p: bool | int = False,
+       n: bool | int = False,
+       r: Any = _QJ_R_MAGIC,
+       z: bool | int = False,
+       b: bool | int = True,
+       pad: bool | int | str = False,
+       tic: bool | int = False,
+       toc: bool | int = False,
+       tictoc: bool | int = False,
+       time: bool | int = False,
+       catch: bool | Any = False,
+       log_all_calls: bool | int = False,
+       _depth: int = 1) -> Any:
   """A combined logging and debugging function.
 
   Arguments:
@@ -114,15 +111,15 @@ def qj(x='',  # pylint: disable=invalid-name
       # more magical features work.
       f = inspect.currentframe()
       for _ in range(_depth):
-        f = f.f_back
+        f = f.f_back  # type: ignore
 
       # This is the magic dictionary where we write state that gives log output
       # that can represent the underlying function's code structure, as well as
       # tracking how many times we logged from the stack frame, which allows us
       # to minimize log spam from logs in loops and comprehensions.
-      qj_dict = f.f_locals.get('__qj_magic_wocha_doin__', {})
+      qj_dict = f.f_locals.get('__qj_magic_wocha_doin__', {})  # type: ignore
       qj_dict = {} if z else qj_dict
-      log_count_key = 'frame_log_count_%d' % f.f_lasti
+      log_count_key = 'frame_log_count_%d' % f.f_lasti  # type: ignore
       qj_dict[log_count_key] = qj_dict.get(log_count_key, 0) + 1
 
       if qj_dict[log_count_key] > qj.MAX_FRAME_LOGS:
@@ -132,21 +129,21 @@ def qj(x='',  # pylint: disable=invalid-name
       # caller's stack frame.
       func_name = qj_dict.get('func_name')
       if func_name is None:
-        func_name = inspect.getframeinfo(f).function
+        func_name = inspect.getframeinfo(f).function  # type: ignore
         if func_name == '<dictcomp>':
-          func_name = inspect.getframeinfo(f.f_back).function
+          func_name = inspect.getframeinfo(f.f_back).function  # type: ignore
         if func_name == '<genexpr>':
-          func_name = inspect.getframeinfo(f.f_back).function
+          func_name = inspect.getframeinfo(f.f_back).function  # type: ignore
         if func_name == '<listcomp>':
-          func_name = inspect.getframeinfo(f.f_back).function
+          func_name = inspect.getframeinfo(f.f_back).function  # type: ignore
         elif func_name == '<setcomp>':
-          func_name = inspect.getframeinfo(f.f_back).function
+          func_name = inspect.getframeinfo(f.f_back).function  # type: ignore
         elif func_name == '<lambda>':
-          func_name = inspect.getframeinfo(f.f_back).function + '.lambda'
+          func_name = inspect.getframeinfo(f.f_back).function + '.lambda'  # type: ignore
         if func_name.startswith('<module>'):
           func_name = func_name.replace('<module>', 'module_level_code')
 
-        filename = os.path.basename(f.f_code.co_filename)
+        filename = os.path.basename(f.f_code.co_filename)  # type: ignore
         # Don't include the filename when logging in ipython contexts.
         if filename[0] != '<':
           filename = filename.replace('.py', '')
@@ -167,30 +164,30 @@ def qj(x='',  # pylint: disable=invalid-name
       # gets a value of 1, the second a value of 2, etc.
       qj_instructions_dict = qj_dict.get('instructions', {})
       qj_dict['instructions'] = qj_instructions_dict
-      qj_instructions_dict[f.f_lasti] = qj_instructions_dict.get(
-          f.f_lasti, len(qj_instructions_dict) + 1)
+      qj_instructions_dict[f.f_lasti] = qj_instructions_dict.get(  # type: ignore
+          f.f_lasti, len(qj_instructions_dict) + 1)  # type: ignore
       # Here, we use that value to determine how many spaces we need after the
       # log prefix.
-      spaces = ' ' * qj_instructions_dict[f.f_lasti]
+      spaces = ' ' * qj_instructions_dict[f.f_lasti]  # type: ignore
       # And we store the dictionary back in the caller's frame.
-      f.f_locals['__qj_magic_wocha_doin__'] = qj_dict
+      f.f_locals['__qj_magic_wocha_doin__'] = qj_dict  # type: ignore
 
       # Try to extract the source code of this call if a string wasn't specified.
       if not s:
         try:
-          code_key = '%s:%r:%s' % (f.f_code.co_filename, f.f_code.co_firstlineno, f.f_code.co_code)
+          code_key = '%s:%r:%s' % (f.f_code.co_filename, f.f_code.co_firstlineno, f.f_code.co_code)  # type: ignore
           fn_calls = qj._FN_MAPS.get(code_key, {})
-          if f.f_lasti not in fn_calls:
-            qj._DEBUG_QJ and qj._DISASSEMBLE_FN(f.f_code, f.f_lasti)
-            fn_calls[f.f_lasti] = _find_current_fn_call(f.f_code, f.f_lasti)
-            qj._FN_MAPS[f.f_code.co_code] = fn_calls
-          s = fn_calls.setdefault(f.f_lasti, '').strip()
+          if f.f_lasti not in fn_calls:  # type: ignore
+            qj._DEBUG_QJ and qj._DISASSEMBLE_FN(f.f_code, f.f_lasti)  # type: ignore
+            fn_calls[f.f_lasti] = _find_current_fn_call(f.f_code, f.f_lasti)  # type: ignore
+            qj._FN_MAPS[f.f_code.co_code] = fn_calls  # type: ignore
+          s = fn_calls.setdefault(f.f_lasti, '').strip()  # type: ignore
         except IOError:
           # Couldn't get the source code, fall back to showing the type.
           s = ''
 
       # Now that we've computed the call count and the indentation, we can log.
-      prefix = '%s:%s%s <%d>:' % (func_name, spaces, s or type(x), f.f_lineno)
+      prefix = '%s:%s%s <%d>:' % (func_name, spaces, s or type(x), f.f_lineno)  # type: ignore
       log = ''
 
       # First handle parameters that might change how x is logged.
@@ -207,7 +204,7 @@ def qj(x='',  # pylint: disable=invalid-name
                     ))
           s = s or str(type(x))
           s += ' (shape (min (mean std) max) hist)'
-          prefix = '%s:%s%s <%d>:' % (func_name, spaces, s, f.f_lineno)
+          prefix = '%s:%s%s <%d>:' % (func_name, spaces, s, f.f_lineno)  # type: ignore
         except:  # pylint: disable=bare-except
           pass
 
@@ -267,7 +264,7 @@ def qj(x='',  # pylint: disable=invalid-name
           if hasattr(inspect, 'signature'):
             argspec_func = lambda f: str(inspect.signature(f))
           else:
-            argspec_func = lambda f: inspect.formatargspec(*inspect.getargspec(f))
+            argspec_func = lambda f: inspect.formatargspec(*inspect.getargspec(f))  # type: ignore
           docs = [
               '%s%s' % (n,
                         argspec_func(v)
@@ -314,7 +311,7 @@ def qj(x='',  # pylint: disable=invalid-name
           qj.LOG_FN('%s%s %sWrapping return value in timing function.' %
                     (qj.PREFIX, qj._COLOR_LOG(), prefix_spaces))
           # pylint: disable=no-value-for-parameter
-          x = _timing(logs_every=int(time))(x)
+          x = _timing(logs_every=int(time))(x)  # type: ignore
           # pylint: enable=no-value-for-parameter
         elif x == '':
           # x is '', so we'll assume it's the default value and we're decorating
@@ -324,7 +321,7 @@ def qj(x='',  # pylint: disable=invalid-name
                          (qj.PREFIX, qj._COLOR_LOG(), prefix_spaces, str(f)))
                and False)
               # pylint: disable=no-value-for-parameter
-              or _timing(logs_every=int(time))(f))
+              or _timing(logs_every=int(time))(f))  # type: ignore
           # pylint: enable=no-value-for-parameter
 
       if catch:
@@ -333,7 +330,7 @@ def qj(x='',  # pylint: disable=invalid-name
           qj.LOG_FN('%s%s %sWrapping return value in exception function.' %
                     (qj.PREFIX, qj._COLOR_LOG(), prefix_spaces))
           # pylint: disable=no-value-for-parameter
-          x = _catch(exception_type=catch)(x)
+          x = _catch(exception_type=catch)(x)  # type: ignore
           # pylint: enable=no-value-for-parameter
         elif x == '':
           # x is '', so we'll assume it's the default value and we're decorating
@@ -343,7 +340,7 @@ def qj(x='',  # pylint: disable=invalid-name
                          (qj.PREFIX, qj._COLOR_LOG(), prefix_spaces, str(f)))
                and False)
               # pylint: disable=no-value-for-parameter
-              or _catch(exception_type=catch)(f))
+              or _catch(exception_type=catch)(f))  # type: ignore
           # pylint: enable=no-value-for-parameter
 
       if log_all_calls:
@@ -364,7 +361,7 @@ def qj(x='',  # pylint: disable=invalid-name
             wrapped.__doc__ = member_fn.__doc__
           return wrapped
 
-        class Wrapper(type(x)):
+        class Wrapper(type(x)):  # type: ignore
 
           def __init__(self, x):
             method_types = (
@@ -389,7 +386,7 @@ def qj(x='',  # pylint: disable=invalid-name
 
       # If we requested an alternative return value, log it.
       if r != _QJ_R_MAGIC:
-        prefix = '%s:%s%s <%d>:' % (func_name, spaces, s or type(r), f.f_lineno)
+        prefix = '%s:%s%s <%d>:' % (func_name, spaces, s or type(r), f.f_lineno)  # type: ignore
         prefix_spaces = ' ' * len(prefix)
         log = qj.STR_FN(r)
         log = '(multiline log follows)\n%s' % log if '\n' in log else log
@@ -413,7 +410,7 @@ def qj(x='',  # pylint: disable=invalid-name
       if d:
         if not qj.DEBUG_FN:
           try:
-            from colabtools import _debugger  # pylint: disable=g-import-not-at-top
+            from colabtools import _debugger  # pylint: disable=g-import-not-at-top  # type: ignore
             qj.DEBUG_FN = lambda frame: _debugger.ColabPdb().set_trace(frame=frame)
           except ImportError:
             try:
@@ -433,7 +430,10 @@ def qj(x='',  # pylint: disable=invalid-name
     finally:
       # Delete the stack frame to ensure there are no memory leaks, as suggested
       # by https://docs.python.org/2/library/inspect.html#the-interpreter-stack
-      del f
+      try:
+        del f  # type: ignore
+      except Exception:
+        pass
 
   # After everything else is done, return x.
   return x
@@ -445,7 +445,7 @@ def _standard_print(*args):
   def w(s):
     writer.s += s
   writer.write = w
-  print(*args, file=writer, end='')
+  print(*args, file=writer, end='')  # type: ignore
   return writer.s
 
 
@@ -517,8 +517,8 @@ qj.make_global = lambda sym=qj, name='qj', mod=sys.modules[_builtin_module_name]
 # TODO(iansf):Annoyingly slow for high frequency logging in colab.
 if not hasattr(sys.modules['__main__'], '__file__'):
   try:
-    from colabtools import googlelog  # pylint: disable=g-import-not-at-top
-    from colabtools import outputformat  # pylint: disable=g-import-not-at-top
+    from colabtools import googlelog  # pylint: disable=g-import-not-at-top  # type: ignore
+    from colabtools import outputformat  # pylint: disable=g-import-not-at-top  # type: ignore
     import multiprocessing  # pylint: disable=g-import-not-at-top
     qj._last_output_format = _time.time()
     _capture = googlelog.Capture()
@@ -542,7 +542,7 @@ if not hasattr(sys.modules['__main__'], '__file__'):
         outputformat.max_output_height('1400')
 
   except ImportError:
-    _start_capture = lambda: None
+    _start_capture = lambda: False
     _end_capture = lambda: None
   qj.make_global()
 
@@ -621,11 +621,11 @@ def _disassemble3(co, lasti):
 
 def _get_instruction_bytes(code, co, linestarts):
   if sys.version_info[0] == 3 and sys.version_info[1] < 11:  # >= 3.0, < 3.11
-    return dis._get_instructions_bytes(code, co.co_varnames, co.co_names,
+    return dis._get_instructions_bytes(code, co.co_varnames, co.co_names,  # type: ignore
                                        co.co_consts, co.co_cellvars + co.co_freevars,
                                        linestarts)
   elif sys.version_info[0] == 3 and sys.version_info[1] < 13:  # >= 3.0, < 3.13
-    return dis._get_instructions_bytes(
+    return dis._get_instructions_bytes(  # type: ignore
       code,
       varname_from_oparg=co._varname_from_oparg,
       names=co.co_names,
@@ -636,7 +636,7 @@ def _get_instruction_bytes(code, co, linestarts):
       co_positions=None,
       show_caches=False)
   else:
-    return dis._get_instructions_bytes(
+    return dis._get_instructions_bytes(  # type: ignore
       code,
       # varname_from_oparg=co._varname_from_oparg,
       # names=co.co_names,
@@ -701,8 +701,8 @@ def _build_instruction_stack3(co, lasti):
     oparg_repr = instr.argval
 
     if sys.version_info[0] > 3 or sys.version_info[1] >= 13:  # >= 3.13
-      _, oparg_repr = dis.ArgResolver(co_consts=co.co_consts, names=co.co_names, varname_from_oparg=co._varname_from_oparg,
-                                      labels_map=dis._make_labels_map(co.co_code)
+      _, oparg_repr = dis.ArgResolver(co_consts=co.co_consts, names=co.co_names, varname_from_oparg=co._varname_from_oparg,  # type: ignore
+                                      labels_map=dis._make_labels_map(co.co_code)  # type: ignore
                                       ).get_argval_argrepr(op, instr.arg, instr.offset)
       if isinstance(oparg_repr, str) and 'to L' in oparg_repr:
         oparg_repr = ''
@@ -730,7 +730,7 @@ def _build_instruction_stack3(co, lasti):
           oparg_repr = ['[', ']']
         else:
           oparg_repr = ''
-      elif hasattr(dis, '_Unknown') and isinstance(oparg_repr, dis._Unknown):
+      elif hasattr(dis, '_Unknown') and isinstance(oparg_repr, dis._Unknown):  # type: ignore
         oparg_repr = ''
 
       if oparg > 0:

@@ -32,6 +32,7 @@ DEBUG_TESTS = False
 
 
 # pylint: disable=line-too-long
+# pyright: reportFunctionMemberAccess=false
 class RegExp(object):
 
   def __init__(self, pattern, flags=0):
@@ -534,7 +535,7 @@ class QjTest(unittest.TestCase):
         qj.LOG_FN = mock_log_fn
         qj.DEBUG_FN = mock_debug_fn
         alternative_return_value = 'some other return value'
-        out = qj('some log',  # x='',  # pylint: disable=invalid-name
+        out = qj('some log',  # x='',
                  'some prefix',  # s='',
                  lambda _: 'some extra info',  # l=None,
                  True,  # d=False,
@@ -575,9 +576,23 @@ class QjTest(unittest.TestCase):
         qj.LOG_FN = mock_log_fn
         input_value = 'some log'
         alternative_return_value = 'some other return value'
-        out = qj('some log', 'some prefix', lambda _: 'some extra info', True,
-                 True, False, False, alternative_return_value, False, False,
-                 False, False, False, False, False, False, False)
+        out = qj('some log',  # x='',
+                 'some prefix',  # s='',
+                 lambda _: 'some extra info',  # l=None,
+                 True,  # d=False,
+                 True,  # p=False,
+                 False,  # n=False,
+                 alternative_return_value,  # r=_QJ_R_MAGIC,
+                 False,  # z=False,
+                 False,  # b=True,
+                 False,  # pad=False,
+                 False,  # tic=False,
+                 False,  # toc=False,
+                 False,  # tictoc=False,
+                 False,  # time=False,
+                 False,  # catch=False,
+                 False,  # log_all_calls=False,
+                )
         mock_log_fn.assert_not_called()
         mock_debug_fn.assert_not_called()
         self.assertIs(out, input_value)
@@ -1357,7 +1372,7 @@ class QjTest(unittest.TestCase):
       x = 2
       a = [None, False]
       aa = (False, False)
-      qj(x, '', *a, *aa)
+      qj(x, '', *a, *aa)  # type: ignore
 
     with mock.patch('logging.info') as mock_log_fn:
       # qj._DEBUG_QJ = 1
